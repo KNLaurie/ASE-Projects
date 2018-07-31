@@ -52,7 +52,8 @@ def train(iter, environment):
         print("Episode: ", i + 1)
         best_policy, best_reward = run(i, best_reward, best_policy, environment)
         print(best_policy)
-        if i <= 10 or i % 500 == 0:
+        
+        if i < 10 or i % 500 == 0:
             env = gym.wrappers.Monitor(environment, "/u/lauriek/PythonExercises/OpenAI/MCData", force = True)
             running = True
             observation = env.reset()
@@ -85,39 +86,29 @@ best_policy = train(Iterations, env)
 
 def test(policy):
     env = gym.make('MountainCar-v0')
+    
     for i in range(10):
         running = True
         observation = env.reset()
         max_steps = 500
         steps = 0
+        
         while running:
             env.render()
             steps += 1
+            
             if policy.dot(observation) <= 0:
-                action = 0
-                
+                action = 0     
             else:
                 action = 2
             
             observation, reward, done, info = env.step(action)
+            
             if observation[0] >= 0.5:
                 print("Episode " + str(i + 1) + " number of moves: " +  str(steps))
-                running = False
-            
-               
+                running = False           
             elif max_steps == steps:
                 running = False
+
 test(best_policy)
-        
     
-
-    
-    
-        
-        
-    
-
-
-
-
-
