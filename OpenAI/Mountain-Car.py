@@ -17,7 +17,6 @@ def run(iteration, best_reward, best_policy, environment):
     observation = env.reset()
     running = True
     obs_list = []
-    vel_list = []
     print("Test Policy: " + str(policy))
     while running:
         #env.render()
@@ -29,7 +28,6 @@ def run(iteration, best_reward, best_policy, environment):
             action = 2
         observation, r, done, info = env.step(action)
         obs_list.append(observation[0])
-        vel_list.append(observation[1])
         
         if done == True:
             if observation[0] >= 0.5:
