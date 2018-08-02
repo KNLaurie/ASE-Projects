@@ -1,0 +1,109 @@
+import random, numpy, math, gym
+
+from keras.models import Sequential
+from keras.layers import *
+from keras.optimizers import *
+
+
+
+class Agent():
+    
+    #Environment, NN, Hyperparameters
+    def __init__(self, problem, statecount, actioncount):
+        self.problem = problem
+        self.env = gym.make(problem)
+        
+        self.stateCnt = state_count
+        self.actionCnt = actioncount
+    
+        self.model = self.buildModel()
+        
+        
+        self.capacity = 100000
+        self.batch_size = 64
+        self.gamma = 0.99
+        self.max_epsilon = 1
+        self.min_epsilon = 0.01
+        self.decay = 0.001
+    
+    def buildModel(self):
+            model = Sequential()
+                
+            model.add(Dense(24, activation = 'relu', input_dim = self.stateCnt))
+            model.add(Dense(24, activation = 'relu'))
+            model.add(Dense(self.actionCnt, activation = 'linear'))
+                
+            model.compile(loss = 'mse', optimizer = Adam(lr = 0.001))
+            
+            return model
+    
+    def train(self, x, y):
+        self.model.fit(x, y, batch_size = 64, nb_epoch = 1, verbose = 0)
+    
+    def predict(self, s):
+        self.model.predict(s)
+
+    
+    def act(self, s):
+        if random.random() < self.epsilon:
+            return random.randint(0, self.actionCnt - 1)
+        else:
+            return numpy.argmax(self.predict(s))
+        
+    def observe(self, sample):
+        self.memory.add(sample)
+        
+        self.steps += 1
+        self.epsilon = min_epsilon + (max_epsilon - min_epsilon) * math.exp(-decay * self.steps)
+    
+    def replay(self, batch_size):
+        minibatch = random.sample(self.memory, batch_size)
+        for state, action, reward, next_state, done in minibatch:
+            target = reward
+            if not done:
+              target = reward + self.gamma * \
+                       np.amax(self.model.predict(next_state)[0])
+            target_f = self.model.predict(state)
+            target_f[0][action] = target
+            self.model.fit(state, target_f, epochs=1, verbose=0)
+        if self.epsilon > self.epsilon_min:
+            self.epsilon *= self.epsilon_decay
+    
+    
+    
+    
+    #Episode
+    def run(self, agent):
+        s = self.env.reset()
+        R = 0
+        steps = 0
+        
+        while True:
+            a = agent.act(s)
+            s_, r, done, info = self.env.step(a)
+            
+            if done:
+                s_ = None
+            self.observe((s, a, r, s_))
+            self.replay()
+            
+            s = s_
+            R += r
+            
+            if done:
+                break
+            
+            print("Reaward: " + str(r))
+
+class Memory:
+    def __init__(self, capacity):
+        self.capacity = capacity
+        self.samples = []
+    
+    def add(self, state, action, reward, next_state, done):
+        if len(self.samples) < self.capacity:
+            self.samples.append((state, action, reward, next_state,done))
+    
+    def sample(self, batch_size):
+        batch_size = min(batch_size, len(self.samples))
+        return random.sample(self.samples, batch_size)
