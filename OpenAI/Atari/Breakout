@@ -1,0 +1,175 @@
+import torch, torchvision, torchvision.transforms as transforms, torch.nn as nn, torch.nn.functional as F, torch.optim as optim, matplotlib.pyplot as plt
+import random, numpy as np, math, gym
+from gym import wrappers
+
+class NN(nn.Module):
+    def __init__(self, num_actions, input_size = 4, train = True):
+        super(NN, self).__init__()
+        
+        self.conv1 = nn.Conv2D(input_size, 32, 8, 4)
+        self.conv2 = nn.Conv2D(32, 64, 4, 1)
+        self.conv3 = nn.Conv2D(64, 64, 3, 1)
+        
+        self.fc1 = nn.Linear(64 * 7 * 7, 1500)
+        self.fc2 = nn.Linear(1500, num_actions)
+    
+    def forward(self, x):
+        if train == False:
+            
+        h= F.relu(self.conv1(x))
+        h= F.relu(self.conv2(h))
+        h= F.relu(self.conv3(h))
+        
+        h=h.view(x.size(0), -1)
+        h= F.relu(self.fc1(h))
+        h= self.fc2(h)
+        
+        return h
+        
+class Agent():
+    def __init__(self, action_count, state_count, model, env, train = True, weights = None, batch_size = 32,
+                 max_memory = 1000000, discount = 0.99, epsilon = 0.1, max_epsilon = 0.1, min_epsilon = 0.01, decay = 0.95):
+        
+        self.batch_size = batch_size
+        self.max_memory = max_memory
+        self.discount = discount
+        self.epsilon = epsilon
+        self.min_epsilon = min_epsilon
+        self.max_epsilon = max_epsilon
+        self.decay = decay
+        self.step = 0
+        self.env = env
+        
+        self.model = model
+        
+        self.memory = []
+        
+        self.actionCnt = action_count
+        self.stateCnt = state_count
+
+#NN
+
+           
+
+# MEMORY
+
+    def add(self, s, a, r ,s_):
+        self.memory.append((s, a, r, s_))        
+
+        if len(self.memory) > self.max_memory:
+            self.memory.pop(0)
+        
+    def sample(self, batch_size):
+        n = min(batch_size, len(self.memory))
+        return random.sample(self.memory, n)
+
+# FRAME PROCESSING
+
+#-------https://becominghuman.ai/lets-build-an-atari-ai-part-1-dqn-df57e8ff3b26-------
+    def to_gray(rgb):
+        gray = np.dot(rgb[...,:3], [0.299, 0.587, 0.114])
+        return gray
+
+
+    def process(frame):
+        frame = imresize(frame, (110, 84, 3))
+        frame = to_gray(frame)
+        frame = frame[20:104]
+        return frame
+    
+    
+# ACTION
+
+    def act(self, state):
+        if random.random() > self.epsilon:
+            return random.randint(0, self.actionCnt-1)
+        else:
+            return np.argmax(self.model.FORWARD(state))
+
+# TRAINING
+
+    def observe(self, s, a, r, s_):
+        self.memory.add(s, a, r, s_)
+        
+        self.steps += 1
+        self.epsilon = min_epsilon + (max_epsilon - min_epsilon) * math.exp(-decay * self.steps)
+    
+    def train(self):
+        for i in range(100):
+            frame = self.env.reset()
+            frame = self.process(s)
+            
+            frames = [frame, frame, frame, frame]
+            s = np.stack(frames, axis = 2)
+            
+            R = 0 
+
+            while True:            
+                if self.step != 0 and self.step % 4 == 0:
+                    a = a
+                else:
+                    a = self.act(s)
+
+                frame, r, done, info = self.env.step(a)
+
+                if done:
+                    s_ = None
+                    
+
+                frame = process(frame)
+                frames.pop()
+                frames.append(frame)
+                state_ = np.stack(frames, axis=2)
+                
+                agent.observe(s, a, r, s_)
+                agent.replay(s, s_)            
+
+                s = s_
+                R += r
+
+                if done:
+                    break
+                
+    
+    def replay(self, s, s_):
+        batch = self.sample(self.batch_size)
+        batchLen = len(batch)
+        
+        s = self.preprocess(s)
+        self.sShape = np.ndarray.shape(s)
+        
+        p = self.model.predict(s)
+        p_ = self.model.predict(s_)
+        
+        x = np.zeros((batchLen, stateCnt))
+        y = np.zeros((batchLen, actionCnt))
+        
+        for i in range(batchLen):
+            o = batch[i]
+            s, a, r, s_ = o[0], o[1], o[2], o[3]
+            
+            t = p[i]
+            if s_ == None:
+                t[a] = r
+            else:
+                t[a] = r + self.dicount * np.amax(p_[i])
+            
+            x[i] = s
+            y[i] = t
+            
+        self.model.fit(x, y, batch_size = self.batch_size)
+
+
+#RUN
+
+env = gym.make('Breakout-v0')
+
+stateCnt  = env.env.observation_space.shape[0]
+actionCnt = env.env.action_space.n 
+
+
+
+brkout = Agent(actionCnt, stateCnt, env)
+brkout.train()
+brkout.model.save_weights('u/lauriek/PythonExercises/OpenAI/Atari/breakout_weights.h5')
+
