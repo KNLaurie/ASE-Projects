@@ -1,23 +1,22 @@
-import torch, torchvision, torchvision.transforms as transforms, torch.nn as nn, torch.nn.functional as F, torch.optim as optim, matplotlib.pyplot as plt
+import torch, torchvision, torchvision.transforms as T, torch.nn as nn, torch.nn.functional as F, torch.optim as optim, matplotlib.pyplot as plt
 import random, numpy as np, math, gym
+from scipy.misc.pilutil import imread, imresize
 from gym import wrappers
+from itertools import count
+from collections import namedtuple
 
 #--------------------IMAGE PREPROCESSING-------------------------
 
 class Frame_pro():
-    def __ init__(self, frame):
-        self.frame = frame
-    
-    def to_gray(self, rgb):
-        gray = np.dot(rgb[...,:3], [0.299, 0.587, 0.114])
-        return gray
+    def to_grayscale(self, img):
+        return np.mean(img, axis=2).astype(np.uint8)
 
+    def downsample(self, img):
+        return img[::2, ::2]
 
-    def process(self):
-        frame = imresize(self.frame, (110, 84, 3))
-        frame = to_gray(frame)
-        frame = frame[20:104]
-        return frame
+    def preprocess(self,img):
+        return self.to_grayscale(self.downsample(img))
+      
 
 
 #-------------------NETWORK--------------------------------------
@@ -26,23 +25,21 @@ class NN(nn.Module):
     def __init__(self, num_actions, input_size = 4, train = True):
         super(NN, self).__init__()
         
-        self.conv1 = nn.Conv2D(input_size, 32, 8, 4)
-        self.conv2 = nn.Conv2D(32, 64, 4, 1)
-        self.conv3 = nn.Conv2D(64, 64, 3, 1)
+        self.conv1 = nn.Conv2d(input_size, 32, kernel_size = 8, stride = 4)
+        self.conv2 = nn.Conv2d(32, 64, kernel_size = 4, stride = 1)
+        self.conv3 = nn.Conv2d(64, 64, kernel_size = 3, stride = 1)
         
         self.fc1 = nn.Linear(64 * 7 * 7, 1500)
         self.fc2 = nn.Linear(1500, num_actions)
     
-    def forward(self, x):
-        if train == False:
-            
-        h= F.relu(self.conv1(x))
-        h= F.relu(self.conv2(h))
-        h= F.relu(self.conv3(h))
+    def forward(self, x):            
+        h = F.relu(self.conv1(x))
+        h = F.relu(self.conv2(h))
+        h = F.relu(self.conv3(h))
         
-        h=h.view(x.size(0), -1)
-        h= F.relu(self.fc1(h))
-        h= self.fc2(h)
+        h = h.view(x.size(0), -1)
+        h = F.relu(self.fc1(h))
+        h = self.fc2(h)
         
         return h
 
@@ -50,4 +47,144 @@ class NN(nn.Module):
 
 class Memory():
     def __init__(self, capacity):
+        self.capacity = capacity
+        self.memory = []
+        self.position = 0
         
+    def remember(self, *args):
+        if len(self.memory) < self.capacity:
+            self.memory.pop(0)
+        
+        self.memory[self.position] = Transition(*args)
+        self.position = (self.position + 1) % self.capacity
+    
+    def sample(self, batch_size):
+        size = min(batch_size, len(self.memory))
+        
+        return random.sample(self.memory, size)
+
+#---------------------AGENT-------------------------------------
+
+class Agent():
+    def __init__(self, action_count, state_count, env, batch_size = 32, max_memory = 1000000,
+                 discount = 0.99, epsilon = 0.1, max_epsilon = 0.1, min_epsilon = 0.01, decay = 0.95):
+        self.actCnt = action_count
+        self.stateCnt = state_count
+        
+        self.env = env
+        self.batchSize = batch_size
+        self.capacity = max_memory
+        
+        self.DISCOUNT = discount
+        self.EPSILON = epsilon
+        self.MAX_EPSILON = epsilon
+        self.MIN_EPSILON = min_epsilon
+        self.DECAY = decay
+        
+        self.steps = 0
+        
+        self.sampler = Memory(self.capacity)
+        self.network = NN(self.actCnt, self.stateCnt)
+        self.image = Frame_pro()
+        
+        self.target_net = NN(self.actCnt, self.stateCnt)
+        self.target_net.load_state_dict(self.network.state_dict())
+        self.target_net.eval()
+        
+        self.Transition = namedtuple('Transition',
+                        ('state', 'action', 'next_state', 'reward'))
+        
+    def create_env(self, env_id, video = False):
+        env = gym.make(env_id)
+        
+        if video:
+            env = wrappers.Monitor(env, 'test', force=True)
+    
+        return env
+    
+    def action(self, state):
+        self.steps += 1
+        
+        self.EPSILON = self.MIN_EPSILON + (self.MAX_EPSILON - self.MIN_EPSILON) * math.exp(-self.DECAY * self.steps)
+        
+        if random.random() < self.EPSILON:
+            
+
+        
+        else:
+           with torch.no_grad():
+               return self.network(state).max(1)[1].view(1,1)
+    
+    def optimize(self):
+        update = 20
+        if len(self.sampler.memory) < self.batch_size:
+            return
+        
+        transitions = self.sampler.sample(self.batch_size)
+        batch = self.Transition(*zip(*transitions))
+        
+        non_final_mask = torch.tensor(tuple(map(lambda s: s is not None,
+                                                batch.next_state)), dtype = torch.uint8)
+        non_final_next_states = torch.cat([s for s in batch.next_state if s is not None])
+        
+        state_batch = torch.cat(batch.state)
+        action_batch = torch.cat(batch.action)
+        reward_batch = torch.cat(batch.reward)
+        
+        state_action_values = self.network(state_batch).gather(1, action_batch)
+        
+        next_state_values =  torch.zeros(self.batch_size)
+        next_state_values[non_final_mask] = self.target_net(non_final_next_states).max(1)[0].detach()
+        next_state_values.volatile = False
+        expected_state_action_values = (next_state_values * self.DISCOUNT) + reward_batch        
+        
+        loss = F.smooth_l1_loss(state_action_values,targets)
+        
+        optimizer.zero_grad()
+        loss.backward()
+        
+        for i in self.network.parameters():
+            i.grad.data.clamp_(-1, 1)
+        
+        optimzer.step()
+        
+        
+    def run(self, num_episodes, test = False):
+        env = self.create_env(self.env, video = test)
+        for ep in range(num_episodes):
+            s = env.reset()
+                
+            s = self.image.preprocess(s)
+            s = torch.from_numpy(s) 
+            
+            R = 0
+            
+            for t in count():
+                a = self.action(s)
+                s_, r, done, _ = self.env.step(a.item())
+                
+                if done:
+                    s_ = None
+                    
+                self.sampler.remember(s, a, r, s_)
+                
+                s = s_
+                R += r
+                   
+                self.optimize()
+                
+                if done:
+                    print("Episode " + ep + " reward: " + R)
+                
+        if train:
+            print("Training Complete")
+    
+#----------------------------RUN-------------------------------
+
+env = gym.make('BreakoutDeterministic-v4')
+
+stateCnt  = env.observation_space.shape[0]
+actionCnt = env.action_space.n
+
+A = Agent(actionCnt, stateCnt, 'BreakoutDeterministic-v4')
+A.run(50)
