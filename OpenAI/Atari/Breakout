@@ -1,9 +1,7 @@
 import torch, torchvision, torchvision.transforms as T, torch.nn as nn, torch.nn.functional as F, torch.optim as optim, matplotlib.pyplot as plt
 import random, numpy as np, math, gym
-from scipy.misc.pilutil import imread, imresize
 from gym import wrappers
 from itertools import count
-from collections import namedtuple
 
 #--------------------IMAGE PREPROCESSING-------------------------
 
