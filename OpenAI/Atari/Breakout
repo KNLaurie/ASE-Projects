@@ -24,10 +24,10 @@ class Frame_pro():
         return screen
     
     def process(self, screen):
-        screen= screen[34:-16,:]
+        screen = screen[34:-16,:]
         screen = self.img_transform(screen)
-        screen= T.Grayscale()(screen)
-        screen= T.ToTensor()(screen)
+        screen = T.Grayscale()(screen)
+        screen = T.ToTensor()(screen)
         return screen.squeeze(1)
         
 
@@ -165,26 +165,32 @@ class Agent():
         
         estimator2.load_state_dict(estimator1.state_dict())
     
+    def save_checkpoint(self, state, filename):
+        torch.save(state, filename)
+        print(f"=> saving checkpoint '{filename}' at episode {state['epoch']}")
+    
    
     
 ##-------------------------------MAIN-------------------------------------------------    
     
     def main(self):
-
+        rewards = []
         start_episode = 0
         total_t = 0
         skip = True
         optimizer= torch.optim.RMSprop(self.q_net.parameters(),lr=0.00025, momentum=0, weight_decay=0.99, eps=1e-6)
         VALID_ACTIONS = [0, 1, 2, 3]
         print(VALID_ACTIONS)
+        model_name = "Breakout"
         
-       
-        episode_rewards = 0
-
+        q_values=[]
+        episode_lengths=np.zeros(10000)
+        episode_rewards=np.zeros(10000)
 
         self.target_net.load_state_dict(self.q_net.state_dict())
 
         env = gym.envs.make("Breakout-v0")
+        
         
         state = env.reset()
         state = self.image.process(state) 
@@ -220,7 +226,8 @@ class Agent():
 
         print("Training")
         
-        torch.save(self.q_net.state_dict(), 'breakoutNetwork.pt')
+       
+        
         
         for ep in range(0, self.num_episodes):
             state = env.reset()
@@ -232,17 +239,26 @@ class Agent():
             action=None
             loss = None
             done = False
-        
+            
+            if ep > 0 and ep % 50 == 0:
+                self.save_checkpoint({'epoch': ep + 1,
+                                 'total_t':total_t,
+                                 'state_dict': self.q_net.state_dict(),
+                                 'optimizer' : optimizer.state_dict(),
+                                 'episode_lengths':episode_lengths,
+                                 'episode_rewards':episode_rewards,
+                                }, model_name+'_chkpt.pth')
+            
                 
             while not done:
                 if action is not None:
-                   _,_,done,_= env.step(action)
-                   _,_,done,_= env.step(action)
-                   _,_,done,_= env.step(action)
-                   _,_,done,_= env.step(action)
+                    for _ in range(4):
+                        if not done:
+                            _,_,done,_= env.step(action)
                    
                 
-                    
+                if total_t % 100:
+                    self.copy_params(self.q_net, self.target_net)
                
                 
                 if total_t != 0:
@@ -265,73 +281,58 @@ class Agent():
 
                 state = new_state
                 total_t += 1
-            with open(rewards.csv, 'w', newline = '') as csvfile:
-                csvfile.writerow(reward)
                 
-        torch.save(self.q_net.state_dict(), 'breakoutNetwork.pt')
+                episode_rewards[ep] += reward
+                episode_lengths[ep] += 1
         
         
-            
-    def test(self):
-        env = gym.envs.make('Breakout-v0')
-        env = gym.wrappers.Monitor('/u/lauriek/PythonExercises/OpenAI/Atari', force = True)
-        for i in range(0,10):
-            state = env.reset()
-            state = self.image.process(state) 
-            state = torch.cat([state.clone() for i in range(4)])
-            state = state.unsqueeze(0)
-            
-            action=None
-            loss = None
-            done=False
-            
                 
-            while not done:
-                i = 0
-                if action is not None:
-                   _,_,done,_= env.step(action)
-                   _,_,done,_= env.step(action)
-                   _,_,done,_= env.step(action)
-                   _,_,done,_= env.step(action)
-                   
-                if iter != 0:
-                    with torch.no_grad():
-                        action = self.q_net(state).max(1)[1].view(1,1)
+        
+        
+        for _ in range(0, 10):
+            env = wrappers.Monitor(env, '/u/lauriek/PythonExercise/OpenAi/Atari')
+            
+            for ep in range(0, 10):
+                state = env.reset()
+                
+                state = self.image.process(state) 
+                state = torch.cat([state.clone() for i in range(4)])
+                state = state.unsqueeze(0)
+
+                k = 4
+                action=None
+                loss = None
+                done = False
+            
+                    
+                while not done:
+                    if action is not None:
+                        for _ in range(4):
+                            if not done:
+                                _,_,done,_= env.step(action)
+                       
+                    
                         
-                else:
-                    action = 1
-                
-                new_state,reward,done,_= env.step(action)
-                
-                new_state = self.image.process(new_state).unsqueeze(0)
-                new_state = torch.cat([state[:,1:,:,:], new_state],dim=1)
-                
-                state = new_state
-                i += 1
-      
+                   
+                    if not done:
+                        if total_t != 0:
+                            action = self.action(state, VALID_ACTIONS)
+                                
+                        else:
+                            action = 1
+                            
+                        new_state,reward,done,_= env.step(action)
+                        
+                        new_state = self.image.process(new_state).unsqueeze(0)
+                        new_state = torch.cat([state[:,1:,:,:], new_state],dim=1)
+
+                    state = new_state
+                    total_t += 1          
+    
+    
     
 #----------------------------RUN-------------------------------
 A = Agent()
-A.main()
-A.test()
-            
-            
-            
-            
-            
-                
-            
-                
-            
-            
-         
-        
-        
-        
-    
-            
-        
-        
-        
-            
 
+A.main()
+         
