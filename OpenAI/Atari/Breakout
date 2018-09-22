@@ -180,7 +180,6 @@ class Agent():
         skip = True
         optimizer= torch.optim.RMSprop(self.q_net.parameters(),lr=0.00025, momentum=0, weight_decay=0.99, eps=1e-6)
         VALID_ACTIONS = [0, 1, 2, 3]
-        print(VALID_ACTIONS)
         model_name = "Breakout"
         
         q_values=[]
@@ -221,14 +220,8 @@ class Agent():
             if i % 1000 == 0:
                 print("stored memory: " + str(i))
         
-        print("Complete")
-
-
         print("Training")
-        
-       
-        
-        
+                              
         for ep in range(0, self.num_episodes):
             state = env.reset()
             state = self.image.process(state) 
