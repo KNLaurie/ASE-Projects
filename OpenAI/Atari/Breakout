@@ -286,47 +286,7 @@ class Agent():
             f.write(episode_rewards)
         
         
-        for _ in range(0, 10):
-            
-            
-            for ep in range(0, 10):
-                state = env.reset()
-                
-                state = self.image.process(state) 
-                state = torch.cat([state.clone() for i in range(4)])
-                state = state.unsqueeze(0)
-
-                k = 4
-                action=None
-                loss = None
-                done = False
-            
-                    
-                while not done:
-                    if action is not None:
-                        for _ in range(4):
-                            if not done:
-                                _,_,done,_= env.step(action)
-                       
-                    
-                        
-                   
-                    if not done:
-                        if total_t != 0:
-                            action = self.action(state, VALID_ACTIONS)
-                                
-                        else:
-                            action = 1
-                            
-                        new_state,reward,done,_= env.step(action)
-                        
-                        new_state = self.image.process(new_state).unsqueeze(0)
-                        new_state = torch.cat([state[:,1:,:,:], new_state],dim=1)
-
-                    state = new_state
-                    total_t += 1          
-    
-    
+      
     
 #----------------------------RUN-------------------------------
 A = Agent()
