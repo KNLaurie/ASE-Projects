@@ -86,7 +86,7 @@ class Memory(object):
 #---------------------AGENT-------------------------------------
 
 class Agent():
-    def __init__(self, action_count = 4, state_count = 210, batch_size = 32, max_memory = 500000, episodes = 10000,
+    def __init__(self, action_count = 4, state_count = 210, batch_size = 32, max_memory = 10000, episodes = 10000,
                  discount = 0.99, epsilon = 0.1, max_epsilon = 0.1, min_epsilon = 0.01, decay = 0.95, decay_steps = 50000):
         
         self.actCnt = action_count
@@ -190,7 +190,7 @@ class Agent():
 
         env = gym.envs.make("Breakout-v0")
         
-        
+       
         state = env.reset()
         state = self.image.process(state) 
         state = torch.cat([state.clone() for i in range(4)]) 
@@ -200,7 +200,7 @@ class Agent():
             
         print("Populating replay memory")
         
-        for i in range(1000):
+        for i in range(10000):
             action = env.action_space.sample()
             new_state, reward, done, _= env.step(action)
             new_state = self.image.process(new_state).unsqueeze(0)
@@ -221,13 +221,14 @@ class Agent():
                 print("stored memory: " + str(i))
         
         print("Training")
+        env = wrappers.Monitor(env, '/u/lauriek/PythonExercise/OpenAi/Atari', video_callable = False, force = True)
                               
         for ep in range(0, self.num_episodes):
             state = env.reset()
             state = self.image.process(state) 
             state = torch.cat([state.clone() for i in range(4)])
             state = state.unsqueeze(0)
-
+            
             k = 0
             action=None
             loss = None
@@ -253,39 +254,40 @@ class Agent():
                 if total_t % 100:
                     self.copy_params(self.q_net, self.target_net)
                
-                
-                if total_t != 0:
-                    action = self.action(state, VALID_ACTIONS)
+                if not done:
+                    if total_t != 0:
+                        action = self.action(state, VALID_ACTIONS)
+                            
+                    else:
+                        action = 1
                         
-                else:
-                    action = 1
+                    new_state,reward,done,_= env.step(action)
                     
-                new_state,reward,done,_= env.step(action)
-                
-                new_state = self.image.process(new_state).unsqueeze(0)
-                new_state = torch.cat([state[:,1:,:,:], new_state],dim=1)
+                    new_state = self.image.process(new_state).unsqueeze(0)
+                    new_state = torch.cat([state[:,1:,:,:], new_state],dim=1)
 
-                   
-              
-                self.replay_memory.push(state, action, reward, new_state, done)
-                
-                if k % 25 == 0:
-                    loss = self.optimize(self.batchSize, self.replay_memory, self.q_net,
-                                     self.target_net, optimizer, self.DISCOUNT)
+                       
+                  
+                    self.replay_memory.push(state, action, reward, new_state, done)
 
-                state = new_state
+                    if k % 50 == 0: 
+                        loss = self.optimize(self.batchSize, self.replay_memory, self.q_net,
+                                         self.target_net, optimizer, self.DISCOUNT)
+
+                    state = new_state
                 total_t += 1
-                
+                k += 1
                 episode_rewards[ep] += reward
                 episode_lengths[ep] += 1
-                k += 1
+                print(k)
         
-        
-                
+        with open('EpisodeRewards.txt', 'w') as f:
+            f.write('Rewards\n')
+            f.write(episode_rewards)
         
         
         for _ in range(0, 10):
-            env = wrappers.Monitor(env, '/u/lauriek/PythonExercise/OpenAi/Atari')
+            
             
             for ep in range(0, 10):
                 state = env.reset()
@@ -331,3 +333,4 @@ A = Agent()
 
 A.main()
          
+
