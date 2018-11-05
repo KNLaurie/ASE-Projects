@@ -13,7 +13,7 @@ import random
 from gym import wrappers
 from itertools import count
 from collections import namedtuple
-import csv
+
 
 #--------------------IMAGE PREPROCESSING-------------------------
 
@@ -87,7 +87,7 @@ class Memory(object):
 
 class Agent():
     def __init__(self, action_count = 4, state_count = 210, batch_size = 32, max_memory = 10000, episodes = 10000,
-                 discount = 0.99, epsilon = 0.1, max_epsilon = 0.1, min_epsilon = 0.01, decay = 0.95, decay_steps = 50000):
+                 discount = 0.99, epsilon = 1, max_epsilon = 1, min_epsilon = 0.01, decay = 0.9999, decay_steps = 50000):
         
         self.actCnt = action_count
         self.stateCnt = state_count
@@ -110,19 +110,7 @@ class Agent():
         
         self.q_net = NN(n_actions = self.actCnt)
         self.target_net = NN(n_actions = self.actCnt)
-        
-    
-    def make_policy(self, network, nA):
-        
-        def policy(observation, epsilon):
-            A = np.ones(nA, dtype=float) * epsilon / nA
-            q_values = network(observation)
-            _, best_action = q_values.max(1)
-            best_action= best_action.data.numpy()
-            A[best_action] += (1.0 - epsilon)
-            return A
-        
-        return policy
+  
  
     
     def optimize(self, batch_size, replay_memory, q_predict, target_estimator, optimizer, discount):
@@ -152,9 +140,10 @@ class Agent():
     def action(self, state, actions):
         self.steps += 1
         
-        self.EPSILON = self.MIN_EPSILON + (self.MAX_EPSILON - self.MIN_EPSILON) * math.exp(-self.DECAY * self.steps)
-        
+        self.EPSILON = max(self.MIN_EPSILON, self.EPSILON*self.DECAY)
+        print(self.EPSILON)
         if random.random() < self.EPSILON:
+            print('explore!')
             return random.choice(actions)           
         
         else:
@@ -178,7 +167,7 @@ class Agent():
         start_episode = 0
         total_t = 0
         skip = True
-        optimizer= torch.optim.RMSprop(self.q_net.parameters(),lr=0.00025, momentum=0, weight_decay=0.99, eps=1e-6)
+        optimizer= torch.optim.RMSprop(self.q_net.parameters())
         VALID_ACTIONS = [0, 1, 2, 3]
         model_name = "Breakout"
         
@@ -200,7 +189,7 @@ class Agent():
             
         print("Populating replay memory")
         
-        for i in range(10000):
+        for i in range(25000):
             action = env.action_space.sample()
             new_state, reward, done, _= env.step(action)
             new_state = self.image.process(new_state).unsqueeze(0)
@@ -221,7 +210,7 @@ class Agent():
                 print("stored memory: " + str(i))
         
         print("Training")
-        env = wrappers.Monitor(env, '/u/lauriek/PythonExercise/OpenAi/Atari', video_callable = False, force = True)
+        env = wrappers.Monitor(env, '/u/lauriek/PythonExercises/OpenAI/Atari/video', video_callable = None, force = True)
                               
         for ep in range(0, self.num_episodes):
             state = env.reset()
@@ -233,7 +222,8 @@ class Agent():
             action=None
             loss = None
             done = False
-            
+            if ep != 0:
+                print(episode_rewards[ep-1])
             if ep > 0 and ep % 50 == 0:
                 self.save_checkpoint({'epoch': ep + 1,
                                  'total_t':total_t,
@@ -255,11 +245,9 @@ class Agent():
                     self.copy_params(self.q_net, self.target_net)
                
                 if not done:
-                    if total_t != 0:
-                        action = self.action(state, VALID_ACTIONS)
-                            
-                    else:
-                        action = 1
+                    
+                    action = self.action(state, VALID_ACTIONS)
+                    print(action)
                         
                     new_state,reward,done,_= env.step(action)
                     
@@ -270,24 +258,25 @@ class Agent():
                   
                     self.replay_memory.push(state, action, reward, new_state, done)
 
-                    if k % 50 == 0: 
+                    if k % 100 == 0: 
                         loss = self.optimize(self.batchSize, self.replay_memory, self.q_net,
                                          self.target_net, optimizer, self.DISCOUNT)
 
                     state = new_state
-                total_t += 1
+                
                 k += 1
                 episode_rewards[ep] += reward
                 episode_lengths[ep] += 1
-                print(k)
+            total_t += 1
+                
+                
         
         with open('EpisodeRewards.txt', 'w') as f:
             f.write('Rewards\n')
-            f.write(episode_rewards)
+            f.write(str(episode_rewards))
         
         
-      
-    
+          
 #----------------------------RUN-------------------------------
 A = Agent()
 
