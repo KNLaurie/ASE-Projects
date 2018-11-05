@@ -119,6 +119,7 @@ class Agent():
         
         non_final_mask = torch.ByteTensor(tuple(not i for i in batch.done))
         non_final_next_states = Variable(torch.cat([s for s in batch.next_state if s is not None]))
+       
             
         state_batch = Variable(torch.cat(batch.state))
         action_batch = Variable(torch.LongTensor(batch.action))
@@ -141,7 +142,7 @@ class Agent():
         self.steps += 1
         
         self.EPSILON = max(self.MIN_EPSILON, self.EPSILON*self.DECAY)
-        print(self.EPSILON)
+        
         if random.random() < self.EPSILON:
             print('explore!')
             return random.choice(actions)           
@@ -165,13 +166,9 @@ class Agent():
     def main(self):
         rewards = []
         start_episode = 0
-        total_t = 0
-        skip = True
         optimizer= torch.optim.RMSprop(self.q_net.parameters())
         VALID_ACTIONS = [0, 1, 2, 3]
-        model_name = "Breakout"
         
-        q_values=[]
         episode_lengths=np.zeros(10000)
         episode_rewards=np.zeros(10000)
 
@@ -222,16 +219,17 @@ class Agent():
             action=None
             loss = None
             done = False
-            if ep != 0:
-                print(episode_rewards[ep-1])
-            if ep > 0 and ep % 50 == 0:
-                self.save_checkpoint({'epoch': ep + 1,
-                                 'total_t':total_t,
-                                 'state_dict': self.q_net.state_dict(),
-                                 'optimizer' : optimizer.state_dict(),
-                                 'episode_lengths':episode_lengths,
-                                 'episode_rewards':episode_rewards,
-                                }, model_name+'_chkpt.pth')
+            
+            print("Reward: " + str(episode_rewards[ep-1]))
+            
+            with open('EpisodeRewards.txt', 'w') as f:
+                f.write('Rewards\n')
+                f.write(str(episode_rewards[ep-1]))
+            
+            if ep % 100 == 0:
+                #Update Target Network
+                
+                self.target_net.load_state_dict(self.q_net.load_state_dict())
             
                 
             while not done:
@@ -241,13 +239,13 @@ class Agent():
                             _,_,done,_= env.step(action)
                    
                 
-                if total_t % 100:
+                if k % 100:
                     self.copy_params(self.q_net, self.target_net)
                
                 if not done:
                     
                     action = self.action(state, VALID_ACTIONS)
-                    print(action)
+                    print("Action: " + str(action))
                         
                     new_state,reward,done,_= env.step(action)
                     
@@ -258,7 +256,7 @@ class Agent():
                   
                     self.replay_memory.push(state, action, reward, new_state, done)
 
-                    if k % 100 == 0: 
+                    if k % 50 == 0: 
                         loss = self.optimize(self.batchSize, self.replay_memory, self.q_net,
                                          self.target_net, optimizer, self.DISCOUNT)
 
@@ -267,14 +265,11 @@ class Agent():
                 k += 1
                 episode_rewards[ep] += reward
                 episode_lengths[ep] += 1
-            total_t += 1
+           
                 
                 
         
-        with open('EpisodeRewards.txt', 'w') as f:
-            f.write('Rewards\n')
-            f.write(str(episode_rewards))
-        
+       
         
           
 #----------------------------RUN-------------------------------
