@@ -87,7 +87,7 @@ class Memory(object):
 
 class Agent():
     def __init__(self, action_count = 4, batch_size = 32, max_memory = 35000,episodes = 10000,
-                 discount = 0.99, epsilon = 1, max_epsilon = 1, min_epsilon = 0.01, decay = 0.999, directory='/home/kaitlyn/PythonProjects'):
+                 discount = 0.99, epsilon = 1, max_epsilon = 1, min_epsilon = 0.01, decay = 0.999, directory='/home/kaitlyn/Python Projects'):
         
         self.actCnt = action_count
         self.batchSize = batch_size
@@ -157,7 +157,7 @@ class Agent():
         else:
            with torch.no_grad():
             q_value = self.q_net.forward(state)
-            return q_value.max(1)[1].view(1, 1)
+            return torch.argmax(q_value)
     
     def copy_params(self, estimator1, estimator2):
         
@@ -185,8 +185,6 @@ class Agent():
         state = self.image.process(state) 
         state = torch.cat([state.clone() for i in range(4)]) 
         state = state.unsqueeze(0) 
-        
-        self.copy_params(self.q_net, self.target_net)
             
         print("Populating replay memory")
         
@@ -213,77 +211,63 @@ class Agent():
             if i % 1000 == 0:
                 print("stored memory: " + str(i))
      
-        env = wrappers.Monitor(env, self.directory,video_callable='Breakout')
-        
-        for e in range(0, self.num_episodes):
-            video_schedule = lambda e: e % 100 == 1
+        env = wrappers.Monitor(env, self.directory,video_callable=False)
+                
+        for ep in range(0,self.num_episodes):
+            state = env.reset()
+            state = self.image.process(state) 
+            state = torch.cat([state.clone() for i in range(4)])
+            state = state.unsqueeze(0)
+                            
+            action=None
+            loss = None
+            done = False
             
-            for ep in range(0,self.num_episodes):
-                state = env.reset()
-                state = self.image.process(state) 
-                state = torch.cat([state.clone() for i in range(4)])
-                state = state.unsqueeze(0)
-                
+            print("Episode: " + str(ep))
             
-                action=None
-                loss = None
-                done = False
-                
-                print("Episode: " + str(ep))
-                
-                if ep != 0:
+            if ep != 0:
                     
                     print("Reward: " + str(episode_rewards[ep-1]))
-               
-                
-                    
-                while not done:
-                    if action is not None:
-                        for _ in range(4):
-                            if not done:
-                                new_state,_,done,_= env.step(action)
-                                
-                                if not done:
-                                    new_state = self.image.process(new_state).unsqueeze(0)
-                                    new_state = torch.cat([state[:,1:,:,:], new_state],dim=1)
-                            
-                                else:
-                                    new_state = None
                        
-               
-                    self.memory_tracker.print_diff()    
-                    if k % 25000 == 0:
-                        #Update Target Network
-                        print("Update Target")
-                        self.copy_params(self.q_net, self.target_net)
-                   
-                    if not done:
-                        
-                        action = self.action(state, VALID_ACTIONS)
-                        
-                            
-                        new_state,reward,done,_= env.step(action)
-                        
-                    
-                        
+            while not done:
+                if action is not None:
+                    for i in range(4):
                         if not done:
-                            new_state = self.image.process(new_state).unsqueeze(0)
-                            new_state = torch.cat([state[:,1:,:,:], new_state],dim=1)
+                            new_state,_,done,_= env.step(action)
+                                
+                            if not done and i== 4:
+                                new_state = self.image.process(new_state).unsqueeze(0)
+                                new_state = torch.cat([state[:,1:,:,:], new_state],dim=1)
                             
-                        else:
-                            new_state = None
+                            elif done:
+                                new_state = None
                       
-                        self.replay_memory.push(state, action, reward, new_state, done)
+                self.memory_tracker.print_diff()    
+                if k % 25000 == 0:
+                        #Update Target Network
+                    print("Update Target")
+                    self.copy_params(self.q_net, self.target_net)
+                   
+                if not done:
                         
-                        print('end')
-                        self.memory_tracker.print_diff()
-                        if k % 300 == 0:
-                            loss = self.optimize(self.batchSize, self.replay_memory, self.q_net,
+                    action = self.action(state, VALID_ACTIONS)       
+                    new_state,reward,done,_= env.step(action)
+                        
+                    if not done:
+                        new_state = self.image.process(new_state).unsqueeze(0)
+                        new_state = torch.cat([state[:,1:,:,:], new_state],dim=1)
+                            
+                    else:
+                        new_state = None
+                      
+                    self.replay_memory.push(state, action, reward, new_state, done)
+                    
+                    if k % 300 == 0:
+                        loss = self.optimize(self.batchSize, self.replay_memory, self.q_net,
                                              self.target_net, optimizer, self.DISCOUNT)
 
-                        state = new_state
-                        
-                    
+                    state = new_state
+
                     k += 1
                     episode_rewards[ep] += reward
                    
@@ -292,12 +276,6 @@ class Agent():
                 f.write(str(i))
                 f.write('\n')
                    
-
-
-#----------------------------------------------TEST------------------------------------------------------------------
-
- 
-          
 #----------------------------RUN-------------------------------
 A = Agent()
 
