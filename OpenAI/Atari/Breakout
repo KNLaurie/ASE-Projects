@@ -4,15 +4,18 @@ import torch.optim as optim
 import torch.nn.functional as F
 from torch.autograd import Variable
 import torchvision.transforms as T
+import csv
+
 
 import gym
-import math
 import numpy as np
-import random
-import matplotlib.pyplot as plt
+from random import random
+from random import choice
+from random import sample
 from gym import wrappers
-from itertools import count
 from collections import namedtuple
+from pympler import tracker
+from pympler import refbrowser
 
 
 #--------------------IMAGE PREPROCESSING-------------------------
@@ -73,9 +76,10 @@ class Memory(object):
         if len(self.memory) > self.capacity:
             self.memory.pop(0)
            
+           
 
     def sample(self, batch_size = 32):
-        return random.sample(self.memory, batch_size)
+        return sample(self.memory, batch_size)
     
     
 
@@ -83,13 +87,14 @@ class Memory(object):
 
 class Agent():
     def __init__(self, action_count = 4, batch_size = 32, max_memory = 35000,episodes = 10000,
-                 discount = 0.99, epsilon = 1, max_epsilon = 1, min_epsilon = 0.01, decay = 0.9999):
+                 discount = 0.99, epsilon = 1, max_epsilon = 1, min_epsilon = 0.01, decay = 0.999, directory='/home/kaitlyn/PythonProjects'):
         
         self.actCnt = action_count
         self.batchSize = batch_size
         self.capacity = max_memory
         self.num_episodes = episodes
         self.Transition = namedtuple("Transition", ["state", "action", "reward", "next_state", "done"])
+        self.directory = directory
         
         self.DISCOUNT = discount
         self.EPSILON = epsilon
@@ -97,16 +102,15 @@ class Agent():
         self.MIN_EPSILON = min_epsilon
         self.DECAY = decay
         
-        self.steps = 0
-        
         self.replay_memory = Memory(self.capacity)
         self.image = Frame_pro()
         
         self.q_net = NN(n_actions = self.actCnt)
         self.target_net = NN(n_actions = self.actCnt)
-  
+        
+        self.memory_tracker = tracker.SummaryTracker()
+     
  
-    
     def optimize(self, batch_size, replay_memory, q_predict, target_estimator, optimizer, discount):
         
         batch = self.Transition(*zip(*replay_memory.sample(batch_size)))
@@ -123,35 +127,37 @@ class Agent():
         state_action_values = q_predict(state_batch).gather(1, action_batch.unsqueeze(1))
 
         next_state_values = torch.zeros(batch_size)
-        next_state_values[non_final_mask] = target_estimator(non_final_next_states).max(1)[0].detach()
         
-        #Expected Q values
-        targets = (next_state_values * self.DISCOUNT) + reward_batch
-    
+        with torch.no_grad():
+            next_state_values[non_final_mask] = target_estimator(non_final_next_states).detach().max(1)[0]
+            
+            #Expected Q values
+            targets = (next_state_values * self.DISCOUNT) + reward_batch
+          
         loss = F.smooth_l1_loss(state_action_values, targets.unsqueeze(1))
-        
+            
         #Optimize
         optimizer.zero_grad()
         loss.backward()
-       
+
         for param in q_predict.parameters():
             param.grad.data.clamp_(-1, 1)
         
         optimizer.step()
+        
       
     def action(self, state, actions):
-        self.steps += 1
+        
         
         self.EPSILON = max(self.MIN_EPSILON, self.EPSILON*self.DECAY)
         
-        if random.random() < self.EPSILON:
-            print('explore!')
-            return random.choice(actions)           
+        if random() < self.EPSILON:
+            return choice(actions)           
         
         else:
            with torch.no_grad():
             q_value = self.q_net.forward(state)
-            return q_value.max(1)[1].item()
+            return q_value.max(1)[1].view(1, 1)
     
     def copy_params(self, estimator1, estimator2):
         
@@ -187,8 +193,11 @@ class Agent():
         for i in range(35000):
             action = env.action_space.sample()
             new_state, reward, done, _= env.step(action)
+            
+            #Processes new state and appends to end of 3 previous frames removing frame at index 0
             new_state = self.image.process(new_state).unsqueeze(0)
             new_state = torch.cat([state[:,1:,:,:], new_state],dim=1)
+           
             self.replay_memory.push(state,action,reward,new_state,done)
             
 
@@ -203,127 +212,96 @@ class Agent():
             
             if i % 1000 == 0:
                 print("stored memory: " + str(i))
+     
+        env = wrappers.Monitor(env, self.directory,video_callable='Breakout')
         
-        print("Training")
-        
+        for e in range(0, self.num_episodes):
+            video_schedule = lambda e: e % 100 == 1
+            
+            for ep in range(0,self.num_episodes):
+                state = env.reset()
+                state = self.image.process(state) 
+                state = torch.cat([state.clone() for i in range(4)])
+                state = state.unsqueeze(0)
+                
+            
+                action=None
+                loss = None
+                done = False
+                
+                print("Episode: " + str(ep))
+                
+                if ep != 0:
                     
-        
-        for ep in range(0, self.num_episodes):
-            state = env.reset()
-            state = self.image.process(state) 
-            state = torch.cat([state.clone() for i in range(4)])
-            state = state.unsqueeze(0)
-            
-        
-            action=None
-            loss = None
-            done = False
-            
-            print("Episode: " + str(ep))
-            
-            if ep != 0:
-                
-                print("Reward: " + str(episode_rewards[ep-1]))
-                
-                with open('EpisodeRewards.txt', 'w') as f:
-                    f.write('Rewards\n')
-                    f.write(str(episode_rewards[ep-1]))
-            
-           
-            
-                
-            while not done:
-                if action is not None:
-                    for _ in range(4):
-                        if not done:
-                            _,_,done,_= env.step(action)
-                   
-                
-                if k % 10000 == 0:
-                    #Update Target Network
-                    print("Update Target")
-                    self.copy_params(self.q_net, self.target_net)
+                    print("Reward: " + str(episode_rewards[ep-1]))
                
-                if not done:
+                
                     
-                    action = self.action(state, VALID_ACTIONS)
-                    print("Action: " + str(action))
-                        
-                    new_state,reward,done,_= env.step(action)
-                    
-                    new_state = self.image.process(new_state).unsqueeze(0)
-                    new_state = torch.cat([state[:,1:,:,:], new_state],dim=1)
-
+                while not done:
+                    if action is not None:
+                        for _ in range(4):
+                            if not done:
+                                new_state,_,done,_= env.step(action)
+                                
+                                if not done:
+                                    new_state = self.image.process(new_state).unsqueeze(0)
+                                    new_state = torch.cat([state[:,1:,:,:], new_state],dim=1)
+                            
+                                else:
+                                    new_state = None
                        
-                  
-                    self.replay_memory.push(state, action, reward, new_state, done)
-
-                    if k % 100 == 0: 
-                        loss = self.optimize(self.batchSize, self.replay_memory, self.q_net,
-                                         self.target_net, optimizer, self.DISCOUNT)
-
-                    state = new_state
-                
-                k += 1
-                episode_rewards[ep] += reward
                
-           
+                    self.memory_tracker.print_diff()    
+                    if k % 25000 == 0:
+                        #Update Target Network
+                        print("Update Target")
+                        self.copy_params(self.q_net, self.target_net)
+                   
+                    if not done:
+                        
+                        action = self.action(state, VALID_ACTIONS)
+                        
+                            
+                        new_state,reward,done,_= env.step(action)
+                        
+                    
+                        
+                        if not done:
+                            new_state = self.image.process(new_state).unsqueeze(0)
+                            new_state = torch.cat([state[:,1:,:,:], new_state],dim=1)
+                            
+                        else:
+                            new_state = None
+                      
+                        self.replay_memory.push(state, action, reward, new_state, done)
+                        
+                        print('end')
+                        self.memory_tracker.print_diff()
+                        if k % 300 == 0:
+                            loss = self.optimize(self.batchSize, self.replay_memory, self.q_net,
+                                             self.target_net, optimizer, self.DISCOUNT)
+
+                        state = new_state
+                        
+                    
+                    k += 1
+                    episode_rewards[ep] += reward
+                   
+        with open('/home/kaitlyn/Python Projects', 'w') as f:
+            for i in episode_rewards:
+                f.write(str(i))
+                f.write('\n')
+                   
 
 
 #----------------------------------------------TEST------------------------------------------------------------------
 
-        env = wrappers.Monitor(env, '/u/lauriek/PythonExercises/OpenAI/Atari/Video',force = True)
-        
-        for ep in range(0, 10):
-            state = env.reset()
-            state = self.image.process(state) 
-            state = torch.cat([state.clone() for i in range(4)])
-            state = state.unsqueeze(0)
-            
-        
-            action=None
-            loss = None
-            done = False
-            
-            print("Episode: " + str(ep))
-            print("Reward: " + str(episode_rewards[ep-1]))
-            
-           
-            
-                
-            while not done:
-                if action is not None:
-                    for _ in range(4):
-                        if not done:
-                            _,_,done,_= env.step(action)
-    
-               
-                if not done:
-                    
-                    action =  self.q_net(state).max(1)[1].item()
-                    print("Action: " + str(action))
-                        
-                    new_state,reward,done,_= env.step(action)
-                    
-                    new_state = self.image.process(new_state).unsqueeze(0)
-                    new_state = torch.cat([state[:,1:,:,:], new_state],dim=1)
-
-                       
-                  
-                    self.replay_memory.push(state, action, reward, new_state, done)
-
-                  
-
-                    state = new_state
-                
-           
-        
-       
-        
+ 
           
 #----------------------------RUN-------------------------------
 A = Agent()
 
 A.main()
          
+
 
