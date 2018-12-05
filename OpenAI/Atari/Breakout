@@ -14,272 +14,239 @@ from random import choice
 from random import sample
 from gym import wrappers
 from collections import namedtuple
-from pympler import tracker
-from pympler import refbrowser
 
 
-#--------------------IMAGE PREPROCESSING-------------------------
+# --------------------IMAGE PREPROCESSING-------------------------
 
-class Frame_pro():
+class PreProcess():
     def img_transform(self, screen):
         screen = T.ToPILImage()(screen)
         screen = T.Resize((84, 84))(screen)
         return screen
-    
+
     def process(self, screen):
-        screen = screen[34:-16,:]
+        screen = screen[34:-16, :]
         screen = self.img_transform(screen)
         screen = T.Grayscale()(screen)
         screen = T.ToTensor()(screen)
         return screen.squeeze(1)
-        
+
+    def stack(self, screen, current_screen):
+        screen = screen.numpy()
+        current_screen[:, :3, :, :] = current_screen[:, 1:, :, :]
+        current_screen = current_screen.numpy()
+        current_screen[-1] = screen
+        return torch.from_numpy(current_screen)
 
 
-#-------------------NETWORK--------------------------------------
+# -------------------NETWORK--------------------------------------
 
 class NN(nn.Module):
-    def __init__(self, in_frames = 4, n_actions = 4):
-        super(NN,self).__init__()        
-        
-        self.conv1= nn.Conv2d(in_frames,32,8,4) 
-        self.conv2= nn.Conv2d(32,64,4,2)
-        self.conv3= nn.Conv2d(64,64,3,1)
+    def __init__(self, in_frames=4, n_actions=3):
+        super(NN, self).__init__()
 
-        self.fc1= nn.Linear(64*7*7,1500)
-        self.fc2= nn.Linear(1500,n_actions)
-        
-        
+        self.conv1 = nn.Conv2d(in_frames, 32, 8, 4)
+        self.conv2 = nn.Conv2d(32, 64, 4, 2)
+        self.conv3 = nn.Conv2d(64, 64, 3, 1)
+
+        self.fc1 = nn.Linear(64 * 7 * 7, 1500)
+        self.fc2 = nn.Linear(1500, n_actions)
+
     def forward(self, x):
-        h= F.relu(self.conv1(x))
-        h= F.relu(self.conv2(h))
-        h= F.relu(self.conv3(h))
-        h=h.view(x.size(0), -1)
-        h= F.relu(self.fc1(h))
-        h= self.fc2(h)
+        h = F.relu(self.conv1(x))
+        h = F.relu(self.conv2(h))
+        h = F.relu(self.conv3(h))
+        h = h.view(x.size(0), -1)
+        h = F.relu(self.fc1(h))
+        h = self.fc2(h)
         return h
 
 
-
-#------------------------MEMORY----------------------------------
+# ------------------------MEMORY----------------------------------
 
 class Memory(object):
-    
+
     def __init__(self, size):
         super(Memory, self).__init__()
         self.memory = []
         self.capacity = size
-        
+
     def push(self, *args):
         Transition = namedtuple("Transition", ["state", "action", "reward", "next_state", "done"])
         self.memory.append(Transition(*args))
-        
+
         if len(self.memory) > self.capacity:
             self.memory.pop(0)
-           
-           
 
-    def sample(self, batch_size = 32):
+    def sample(self, batch_size=32):
         return sample(self.memory, batch_size)
-    
-    
 
-#---------------------AGENT-------------------------------------
+
+# ---------------------AGENT-------------------------------------
 
 class Agent():
-    def __init__(self, action_count = 4, batch_size = 32, max_memory = 35000,episodes = 10000,
-                 discount = 0.99, epsilon = 1, max_epsilon = 1, min_epsilon = 0.01, decay = 0.999, directory='/home/kaitlyn/Python Projects'):
-        
+    def __init__(self, action_count=3, batch_size=32, max_memory=500000, episodes=20000,
+                 discount=0.99, epsilon=1, min_epsilon=0.01, decay=0.99,
+                 directory='/home/kaitlyn/Python Projects/Breakout Videos'):
+
         self.actCnt = action_count
         self.batchSize = batch_size
         self.capacity = max_memory
         self.num_episodes = episodes
         self.Transition = namedtuple("Transition", ["state", "action", "reward", "next_state", "done"])
         self.directory = directory
-        
+
         self.DISCOUNT = discount
         self.EPSILON = epsilon
         self.MAX_EPSILON = epsilon
         self.MIN_EPSILON = min_epsilon
         self.DECAY = decay
-        
+
         self.replay_memory = Memory(self.capacity)
-        self.image = Frame_pro()
-        
-        self.q_net = NN(n_actions = self.actCnt)
-        self.target_net = NN(n_actions = self.actCnt)
-        
-        self.memory_tracker = tracker.SummaryTracker()
-     
- 
+        self.image = PreProcess()
+
+        self.q_net = NN(n_actions=self.actCnt)
+        self.target_net = NN(n_actions=self.actCnt)
+
     def optimize(self, batch_size, replay_memory, q_predict, target_estimator, optimizer, discount):
-        
+
         batch = self.Transition(*zip(*replay_memory.sample(batch_size)))
-        
+
         non_final_mask = torch.ByteTensor(tuple(map(lambda s: s is not None,
-                                          batch.next_state)))
+                                                    batch.next_state)))
         non_final_next_states = torch.cat([s for s in batch.next_state
-                                                if s is not None])
-       
-            
+                                           if s is not None])
+
         state_batch = Variable(torch.cat(batch.state))
         action_batch = Variable(torch.LongTensor(batch.action))
         reward_batch = Variable(torch.Tensor(batch.reward))
         state_action_values = q_predict(state_batch).gather(1, action_batch.unsqueeze(1))
 
         next_state_values = torch.zeros(batch_size)
-        
+
         with torch.no_grad():
             next_state_values[non_final_mask] = target_estimator(non_final_next_states).detach().max(1)[0]
-            
-            #Expected Q values
-            targets = (next_state_values * self.DISCOUNT) + reward_batch
-          
+
+            # Expected Q values
+            targets = (next_state_values * discount) + reward_batch
+
         loss = F.smooth_l1_loss(state_action_values, targets.unsqueeze(1))
-            
-        #Optimize
+
+        # Optimize
         optimizer.zero_grad()
         loss.backward()
 
         for param in q_predict.parameters():
             param.grad.data.clamp_(-1, 1)
-        
+
         optimizer.step()
-        
-      
+
     def action(self, state, actions):
-        
-        
-        self.EPSILON = max(self.MIN_EPSILON, self.EPSILON*self.DECAY)
-        
+
+        self.EPSILON = max(self.MIN_EPSILON, self.EPSILON * self.DECAY)
+
         if random() < self.EPSILON:
-            return choice(actions)           
-        
+            return choice(actions)
+
         else:
-           with torch.no_grad():
-            q_value = self.q_net.forward(state)
-            return torch.argmax(q_value)
-    
+            with torch.no_grad():
+                q_value = self.q_net.forward(state)
+                action = (torch.argmax(q_value) + 1)
+                return action
+
     def copy_params(self, estimator1, estimator2):
-        
+
         estimator2.load_state_dict(estimator1.state_dict())
-    
-  
-   
-    
-##-------------------------------MAIN-------------------------------------------------    
-    
+
+    # -------------------------------MAIN-------------------------------------------------
+
     def main(self):
-        rewards = []
-        start_episode = 0
-        optimizer= torch.optim.RMSprop(self.q_net.parameters(), lr=0.00025)
-        VALID_ACTIONS = [0, 1, 2, 3]
+        optimizer = torch.optim.RMSprop(self.q_net.parameters(), lr=0.0025, momentum=0.95)
+        valid_actions = [1, 2, 3]
         k = 0
-        episode_rewards=np.zeros(10000)
+        episode_rewards = np.zeros(10000)
 
         self.target_net.load_state_dict(self.q_net.state_dict())
 
-        env = gym.envs.make("Breakout-v0")
-        
-       
+        env = gym.envs.make("BreakoutDeterministic-v4")
+
         state = env.reset()
-        state = self.image.process(state) 
-        state = torch.cat([state.clone() for i in range(4)]) 
-        state = state.unsqueeze(0) 
-            
+        state = self.image.process(state)
+        state = torch.cat([state.clone() for i in range(4)])
+        state = state.unsqueeze(0)
+
         print("Populating replay memory")
-        
-        for i in range(35000):
-            action = env.action_space.sample()
-            new_state, reward, done, _= env.step(action)
-            
-            #Processes new state and appends to end of 3 previous frames removing frame at index 0
+
+        for i in range(50000):
+            action = choice(valid_actions)
+            new_state, reward, done, _ = env.step(action)
+
             new_state = self.image.process(new_state).unsqueeze(0)
-            new_state = torch.cat([state[:,1:,:,:], new_state],dim=1)
-           
-            self.replay_memory.push(state,action,reward,new_state,done)
-            
+            new_state = self.image.stack(new_state, state)
 
+            self.replay_memory.push(state, (action - 1), reward, new_state, done)
             state = new_state
-
             if done:
-                
-                state= env.reset()
-                state= self.image.process(state) 
-                state= torch.cat([state.clone() for i in range(4)])
-                state=state.unsqueeze(0)
-            
+                state = env.reset()
+                state = self.image.process(state)
+                state = torch.cat([state.clone() for i in range(4)])
+                state = state.unsqueeze(0)
+
             if i % 1000 == 0:
                 print("stored memory: " + str(i))
-     
-        env = wrappers.Monitor(env, self.directory,video_callable=False)
-                
-        for ep in range(0,self.num_episodes):
+
+        env = wrappers.Monitor(env, self.directory, force=True, video_callable=None)
+
+        for ep in range(0, self.num_episodes):
             state = env.reset()
-            state = self.image.process(state) 
+            state = self.image.process(state)
             state = torch.cat([state.clone() for i in range(4)])
             state = state.unsqueeze(0)
-                            
-            action=None
-            loss = None
+
             done = False
-            
+
             print("Episode: " + str(ep))
-            
+
             if ep != 0:
-                    
-                    print("Reward: " + str(episode_rewards[ep-1]))
-                       
+                print("Reward: " + str(episode_rewards[ep - 1]))
+
             while not done:
-                if action is not None:
-                    for i in range(4):
-                        if not done:
-                            new_state,_,done,_= env.step(action)
-                                
-                            if not done and i== 4:
-                                new_state = self.image.process(new_state).unsqueeze(0)
-                                new_state = torch.cat([state[:,1:,:,:], new_state],dim=1)
-                            
-                            elif done:
-                                new_state = None
-                      
-                self.memory_tracker.print_diff()    
-                if k % 25000 == 0:
-                        #Update Target Network
+
+                if k % 20000 == 0:
                     print("Update Target")
                     self.copy_params(self.q_net, self.target_net)
-                   
+
                 if not done:
-                        
-                    action = self.action(state, VALID_ACTIONS)       
-                    new_state,reward,done,_= env.step(action)
-                        
+
+                    action = self.action(state, valid_actions)
+                    new_state, reward, done, _ = env.step(action)
+
                     if not done:
                         new_state = self.image.process(new_state).unsqueeze(0)
-                        new_state = torch.cat([state[:,1:,:,:], new_state],dim=1)
-                            
+                        new_state = self.image.stack(new_state, state)
+
                     else:
                         new_state = None
-                      
-                    self.replay_memory.push(state, action, reward, new_state, done)
-                    
+
+                    self.replay_memory.push(state, (action - 1), reward, new_state, done)
+
                     if k % 300 == 0:
                         loss = self.optimize(self.batchSize, self.replay_memory, self.q_net,
                                              self.target_net, optimizer, self.DISCOUNT)
 
                     state = new_state
-
                     k += 1
                     episode_rewards[ep] += reward
-                   
-        with open('/home/kaitlyn/Python Projects', 'w') as f:
+
+        with open('/home/kaitlyn/Python Projects/Rewards.txt', 'w') as f:
             for i in episode_rewards:
                 f.write(str(i))
                 f.write('\n')
-                   
-#----------------------------RUN-------------------------------
+
+
+# ----------------------------RUN-------------------------------
+
 A = Agent()
 
 A.main()
-         
-
 
