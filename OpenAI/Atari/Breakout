@@ -177,7 +177,7 @@ class Agent():
 
         print("Populating replay memory")
 
-        for i in range(self.capacity):
+        for i in range(50000):
             action = choice(valid_actions)
             new_state, reward, done, _ = env.step(action)
 
