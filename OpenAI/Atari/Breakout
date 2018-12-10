@@ -85,7 +85,7 @@ class Memory(object):
 # ---------------------AGENT-------------------------------------
 
 class Agent():
-    def __init__(self, action_count=3, batch_size=32, max_memory=500000, episodes=20000,
+    def __init__(self, action_count=3, batch_size=32, max_memory=200000, episodes=20000,
                  discount=0.99, epsilon=1, min_epsilon=0.01, decay=0.99,
                  directory='/home/kaitlyn/Python Projects/Breakout Videos'):
 
@@ -151,7 +151,7 @@ class Agent():
         else:
             with torch.no_grad():
                 q_value = self.q_net.forward(state)
-                action = (torch.argmax(q_value) + 1)
+                action = (torch.argmax(q_value)+1)
                 return action
 
     def copy_params(self, estimator1, estimator2):
@@ -164,7 +164,7 @@ class Agent():
         optimizer = torch.optim.RMSprop(self.q_net.parameters(), lr=0.0025, momentum=0.95)
         valid_actions = [1, 2, 3]
         k = 0
-        episode_rewards = np.zeros(10000)
+        episode_rewards = np.zeros(self.num_episodes)
 
         self.target_net.load_state_dict(self.q_net.state_dict())
 
@@ -177,7 +177,7 @@ class Agent():
 
         print("Populating replay memory")
 
-        for i in range(50000):
+        for i in range(self.capacity):
             action = choice(valid_actions)
             new_state, reward, done, _ = env.step(action)
 
@@ -212,7 +212,8 @@ class Agent():
 
             while not done:
 
-                if k % 20000 == 0:
+                if k % 10000 == 0:
+                    # Update Target Network
                     print("Update Target")
                     self.copy_params(self.q_net, self.target_net)
 
@@ -230,7 +231,7 @@ class Agent():
 
                     self.replay_memory.push(state, (action - 1), reward, new_state, done)
 
-                    if k % 300 == 0:
+                    if k % 4 == 0:
                         loss = self.optimize(self.batchSize, self.replay_memory, self.q_net,
                                              self.target_net, optimizer, self.DISCOUNT)
 
