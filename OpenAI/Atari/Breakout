@@ -4,7 +4,6 @@ import torch.optim as optim
 import torch.nn.functional as F
 from torch.autograd import Variable
 import torchvision.transforms as T
-import csv
 
 
 import gym
@@ -64,10 +63,9 @@ class NN(nn.Module):
 
 # ------------------------MEMORY----------------------------------
 
-class Memory(object):
+class Memory():
 
     def __init__(self, size):
-        super(Memory, self).__init__()
         self.memory = []
         self.capacity = size
 
@@ -85,7 +83,7 @@ class Memory(object):
 # ---------------------AGENT-------------------------------------
 
 class Agent():
-    def __init__(self, action_count=3, batch_size=32, max_memory=200000, episodes=20000,
+    def __init__(self, action_count=3, batch_size=32, max_memory=150000, episodes=20000,
                  discount=0.99, epsilon=1, min_epsilon=0.01, decay=0.99,
                  directory='/home/kaitlyn/Python Projects/Breakout Videos'):
 
@@ -195,7 +193,7 @@ class Agent():
             if i % 1000 == 0:
                 print("stored memory: " + str(i))
 
-        env = wrappers.Monitor(env, self.directory, force=True, video_callable=None)
+        env = wrappers.Monitor(env, self.directory, video_callable=None)
 
         for ep in range(0, self.num_episodes):
             state = env.reset()
@@ -239,10 +237,7 @@ class Agent():
                     k += 1
                     episode_rewards[ep] += reward
 
-        with open('/home/kaitlyn/Python Projects/Rewards.txt', 'w') as f:
-            for i in episode_rewards:
-                f.write(str(i))
-                f.write('\n')
+  
 
 
 # ----------------------------RUN-------------------------------
