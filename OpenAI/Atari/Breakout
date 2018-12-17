@@ -83,9 +83,9 @@ class Memory():
 # ---------------------AGENT-------------------------------------
 
 class Agent():
-    def __init__(self, action_count=3, batch_size=32, max_memory=150000, episodes=20000,
+    def __init__(self, action_count=3, batch_size=32, max_memory=130000, episodes=20000,
                  discount=0.99, epsilon=1, min_epsilon=0.01, decay=0.99,
-                 directory='/home/kaitlyn/Python Projects/Breakout Videos'):
+                 directory='/u/lauriek/PythonExercises/OpenAI/Atari/videos'):
 
         self.actCnt = action_count
         self.batchSize = batch_size
@@ -165,6 +165,7 @@ class Agent():
         episode_rewards = np.zeros(self.num_episodes)
 
         self.target_net.load_state_dict(self.q_net.state_dict())
+        self.target_net.eval()
 
         env = gym.envs.make("BreakoutDeterministic-v4")
 
@@ -193,8 +194,8 @@ class Agent():
             if i % 1000 == 0:
                 print("stored memory: " + str(i))
 
-        env = wrappers.Monitor(env, self.directory, video_callable=None)
-
+        env = wrappers.Monitor(env, self.directory,force=True, video_callable=None)
+        
         for ep in range(0, self.num_episodes):
             state = env.reset()
             state = self.image.process(state)
@@ -213,6 +214,7 @@ class Agent():
                 if k % 10000 == 0:
                     # Update Target Network
                     print("Update Target")
+                    print(k)
                     self.copy_params(self.q_net, self.target_net)
 
                 if not done:
@@ -221,6 +223,7 @@ class Agent():
                     new_state, reward, done, _ = env.step(action)
 
                     if not done:
+                        
                         new_state = self.image.process(new_state).unsqueeze(0)
                         new_state = self.image.stack(new_state, state)
 
@@ -229,9 +232,10 @@ class Agent():
 
                     self.replay_memory.push(state, (action - 1), reward, new_state, done)
 
-                    if k % 4 == 0:
+                    if k % 10 == 0:
                         loss = self.optimize(self.batchSize, self.replay_memory, self.q_net,
                                              self.target_net, optimizer, self.DISCOUNT)
+                   
 
                     state = new_state
                     k += 1
@@ -245,4 +249,5 @@ class Agent():
 A = Agent()
 
 A.main()
+
 
