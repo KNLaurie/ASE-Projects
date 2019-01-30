@@ -15,6 +15,7 @@ from gym import wrappers
 from collections import namedtuple
 
 
+
 # --------------------IMAGE PREPROCESSING-------------------------
 
 class PreProcess():
@@ -30,18 +31,18 @@ class PreProcess():
         screen = T.ToTensor()(screen)
         return screen.squeeze(1)
 
-    def stack(self, screen, current_screen):
-        screen = screen.numpy()
-        current_screen[:, :3, :, :] = current_screen[:, 1:, :, :]
-        current_screen = current_screen.numpy()
-        current_screen[-1] = screen
-        return torch.from_numpy(current_screen)
+    def stack(self, S, s):
+        S = S.numpy()
+        s[:, :3, :, :] = s[:, 1:, :, :]
+        s = s.numpy()
+        s[-1] = S
+        return torch.from_numpy(s)
 
 
 # -------------------NETWORK--------------------------------------
 
 class NN(nn.Module):
-    def __init__(self, in_frames=4, n_actions=3):
+    def __init__(self, in_frames=4, n_actions=4):
         super(NN, self).__init__()
 
         self.conv1 = nn.Conv2d(in_frames, 32, 8, 4)
@@ -58,6 +59,7 @@ class NN(nn.Module):
         h = h.view(x.size(0), -1)
         h = F.relu(self.fc1(h))
         h = self.fc2(h)
+        
         return h
 
 
@@ -83,9 +85,9 @@ class Memory():
 # ---------------------AGENT-------------------------------------
 
 class Agent():
-    def __init__(self, action_count=3, batch_size=32, max_memory=130000, episodes=20000,
+    def __init__(self, action_count=4, batch_size=32, max_memory=70000, episodes=20000,
                  discount=0.99, epsilon=1, min_epsilon=0.01, decay=0.99,
-                 directory='/u/lauriek/PythonExercises/OpenAI/Atari/videos'):
+                 directory='/u/lauriek/PythonExercises/OpenAI/Atari/videos2'):
 
         self.actCnt = action_count
         self.batchSize = batch_size
@@ -149,20 +151,19 @@ class Agent():
         else:
             with torch.no_grad():
                 q_value = self.q_net.forward(state)
-                action = (torch.argmax(q_value)+1)
+                action = torch.argmax(q_value)
                 return action
 
-    def copy_params(self, estimator1, estimator2):
-
-        estimator2.load_state_dict(estimator1.state_dict())
 
     # -------------------------------MAIN-------------------------------------------------
 
     def main(self):
         optimizer = torch.optim.RMSprop(self.q_net.parameters(), lr=0.0025, momentum=0.95)
-        valid_actions = [1, 2, 3]
+        valid_actions = [0, 1, 2, 3]
+        noop = [1, 2]
         k = 0
         episode_rewards = np.zeros(self.num_episodes)
+        max_no_op = 30
 
         self.target_net.load_state_dict(self.q_net.state_dict())
         self.target_net.eval()
@@ -176,14 +177,14 @@ class Agent():
 
         print("Populating replay memory")
 
-        for i in range(50000):
+        for i in range(1000):
             action = choice(valid_actions)
             new_state, reward, done, _ = env.step(action)
 
             new_state = self.image.process(new_state).unsqueeze(0)
             new_state = self.image.stack(new_state, state)
 
-            self.replay_memory.push(state, (action - 1), reward, new_state, done)
+            self.replay_memory.push(state, action, reward, new_state, done)
             state = new_state
             if done:
                 state = env.reset()
@@ -214,13 +215,17 @@ class Agent():
                 if k % 10000 == 0:
                     # Update Target Network
                     print("Update Target")
-                    print(k)
-                    self.copy_params(self.q_net, self.target_net)
+                    self.target_net.load_state_dict(self.q_net.state_dict())
 
                 if not done:
 
                     action = self.action(state, valid_actions)
+                    
+                    if k > max_no_op and action == 0:
+                        action = choice(noop)
+                        
                     new_state, reward, done, _ = env.step(action)
+                    reward2 = reward
 
                     if not done:
                         
@@ -229,8 +234,11 @@ class Agent():
 
                     else:
                         new_state = None
-
-                    self.replay_memory.push(state, (action - 1), reward, new_state, done)
+                    
+                    if action == 1 or action == 2:
+                        reward2 += 1
+                   
+                    self.replay_memory.push(state, action, reward2, new_state, done)
 
                     if k % 10 == 0:
                         loss = self.optimize(self.batchSize, self.replay_memory, self.q_net,
