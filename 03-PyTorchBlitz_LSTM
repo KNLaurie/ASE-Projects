@@ -119,8 +119,8 @@ print('Accuracy of the network on the 10000 test images: %d %%' % (
 class_correct = list(0. for i in range(10))
 class_total = list(0. for i in range(10))
 
-c_x = [torch.zeros(1, 1, 128)]
-h_x = [torch.zeros(1, 1, 128)]
+c_x = [torch.zeros(1, 4, 128)]
+h_x = [torch.zeros(1, 4, 128)]
 
 with torch.no_grad():
     for x, data in testloader:
